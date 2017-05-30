@@ -86,6 +86,35 @@ defmodule Phoenix.Tracker.IntegrationTest do
     assert [{"node1", _}, {"node1.2", _}, {"node2", _}] = list(tracker, topic)
   end
 
+  test "old pids from a node are permdowned when the node comes back up",
+    %{tracker: tracker, topic: topic} do
+    track_presence(@primary, tracker, self(), topic, @primary, %{})
+    {node1_node, {:ok, _node1_tracker}} = start_tracker(@node1, name: tracker)
+    track_presence(@node1, tracker, node1_node, topic, @node1, %{})
+
+    spy_on_tracker(@node1, self(), tracker)
+    assert_heartbeat to: @node1, from: @primary
+
+    {node2_node, {:ok, node2_tracker}} = start_tracker(@node2, name: tracker)
+    track_presence(@node2, tracker, node2_node, topic, @node2, %{})
+
+    Process.unlink(node1_node)
+    Process.exit(node1_node, :kill)
+
+    spy_on_tracker(@node2, self(), tracker)
+
+    {node1_node_new, {:ok, node1_tracker}} = start_tracker(@node1, name: tracker)
+    track_presence(@node1, tracker, node1_node_new, topic, @node1, %{})
+
+    flush()
+    spy_on_tracker(@node1, self(), tracker)
+    assert_heartbeat to: @node2, from: @primary
+    assert_heartbeat to: @node1, from: @node2
+
+    refute {@node1, node1_node} in get_values(@node1, node1_tracker)
+    refute {@node1, node1_node} in get_values(@node2, node2_tracker)
+  end
+
   # TODO split into multiple testscases
   test "tempdowns with nodeups of new vsn, and permdowns",
     %{tracker: tracker, topic: topic} do
